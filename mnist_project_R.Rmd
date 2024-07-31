@@ -1,0 +1,589 @@
+---
+title: "Project 2"
+author: "Sumaiya Uddin"
+date: "`r Sys.Date()`"
+output:
+  word_document: default
+  html_document: default
+  pdf_document: default
+---
+
+### Setting the seed
+
+Setting a seed will cause R to sample the same sample each time we knit our document. This will make sure our results don't change each time we knit, and it will also ensure reproducibility of our work (by setting the same seed it will be possible to reproduce our results).
+
+```{r}
+set.seed(29071995)
+```
+
+### Load packages
+
+In this lab we will explore the data using the 'dplyr' package and visualize it using the 'ggplot2' package for data visualization. Let's load the packages.
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(warning = FALSE, message = FALSE) 
+```
+
+```{r}
+library(dplyr)
+library(tools)
+library(caTools)
+library(graphics)
+library(ggplot2)
+library(ggfortify)
+library(caret)
+library(tidyverse)
+
+```
+
+### The data
+
+MNIST ("Modified National Institute of Standards and Technology") is the de fact "hello world" data set of computer vision. Since its release in 1999, this classic data set of handwritten images has served as the basis for benchmarking classification algorithms. As new machine learning techniques emerge, MNIST remains a reliable resource for researchers and learners alike.([https://en.wikipedia.org/wiki/MNIST_database).](https://en.wikipedia.org/wiki/MNIST_database).)
+
+It is a data set of 60,000 small square 28×28 pixel gray scale images of handwritten single digits between 0 and 9 (c.f. Fig.1). The task is to classify a given image of a handwritten digit into one of 10 classes representing integer values from 0 to 9, inclusively.
+
+Let's load and read the Data.
+
+```{r}
+load_image_file = function(filename) {
+  ret = list()
+  f = file(filename, 'rb')
+  readBin(f, 'integer', n = 1, size = 4, endian = 'big')
+  n = readBin(f, 'integer', n = 1, size = 4, endian = 'big')
+  nrow = readBin(f, 'integer', n = 1, size = 4, endian = 'big')
+  ncol = readBin(f, 'integer', n = 1, size = 4, endian = 'big')
+  x = readBin(f, 'integer', n = n*nrow*ncol, size = 1, signed = FALSE)
+  close(f)
+  data.frame(matrix(x, ncol = nrow*ncol, byrow = TRUE))
+}
+
+load_label_file = function(filename) {
+  f = file(filename, 'rb')
+  readBin(f, 'integer', n = 1, size = 4, endian = 'big')
+  n = readBin(f, 'integer', n = 1, size = 4, endian = 'big')
+  L = readBin(f, 'integer', n = n, size = 1, signed = FALSE)
+  close(f)
+  L
+}
+
+# set working directory
+
+setwd("C:/Users/sumai/OneDrive/Documents/CCNY/Semister-01/Statistics/Project2/Project2Regressions")
+# load images and corresponding labels 
+train_digits = load_image_file('train-images.idx3-ubyte')
+train_Labels = load_label_file('train-labels.idx1-ubyte')
+
+mnist <- cbind.data.frame(train_digits, train_Labels)
+dim(mnist)
+```
+
+# Part-01
+
+Find a least-squares binary classifier for handwritten MNIST digit set, i.e. determine if an image 𝑥 is a digit 𝑘 or not digit 𝑘. Pick a digit you like. First, extract the indices of all digit's with label 𝑘 and randomly separate the samples into equal-sized training and testing groups. Second, do the same for the digits that are not labeled 𝑘. Use label 𝑦\$ = 1 if 𝑥\$ is digit 𝑘 and 𝑦\$ = −1 otherwise. Find 𝛽, and 𝛽 , such that 𝑦\$ ≈ 𝑦+\$ = 𝐬𝐢𝐠𝐧 (𝛽2𝑥\$ + 𝛽)) = 𝐬𝐢𝐠𝐧(𝑦5\$). Note that 𝛽 can be visualized as a 2D image of the same 28x28 size as the digits in the MNIST data set. Display it. Compute the classification error rate and confusion matrices for the both the training and test sets. Reduce the number of parameters in the 𝛽 using backward selection methods. Display 𝛽 for the reduced model. Use the plot() function to run a series of diagnostic tests for your regression. Plot "Residuals vs Fitted", "Normal Q-Q", "Scale-Location", and "Residuals vs Leverage" plots.
+
+Checking for unique labels in train labels. Checking to see if the labels are within the expected values.
+
+```{r}
+unique(unlist(train_Labels))
+```
+
+### Binary Classification
+
+We will generate a training and test data set of equal size from the data set. From here, I selected a digit (i.e. k=0) and converted the k labels in the target variable to '+1' and non-k labels to '-1'. We will implement a Least Squares method to find the Beta coefficients and classify labels using a sign function. First let's Define the labels:
+
+```{r}
+# Select digit k and re-label the dataset wrt selected digit
+k = 0
+df <- data.frame(labels = train_Labels)
+df <- df %>% mutate(ml_labels = case_when(labels == k ~ 1,
+                                          labels !=k ~ -1))
+
+df_labels <- select(df, -c(labels))
+
+# combine into one dataset
+mnist_df <- cbind.data.frame(train_digits, df_labels)
+dim(mnist_df)
+```
+
+Here we created a new data frame with new labels. Now we will split it into training and test subset of equal size. And then we will perform a simple linear regression for both training and test subset. Linear regression models are used to describe the relationship between one or more predictor variables and a response variable.
+
+```{r}
+# Spliting 50% of dataset as training set and 50% as test set
+digits <- sample.split(Y = mnist_df , SplitRatio =0.5)
+train_df  <- mnist_df[digits, ]
+test_df   <- mnist_df[!digits, ]
+  
+# running the model for train set.
+model_train <- lm(ml_labels ~ . , data = train_df )
+```
+
+### Display Beta Coefficients
+
+The regression coefficients in linear regression help in predicting the value of an unknown variable using a known variable. Regression coefficients can be defined as estimates of some unknown parameters to describe the relationship between a predictor variable and the corresponding response. In other words, regression coefficients are used to predict the value of an unknown variable using a known variable. For a simple linear regression model:
+
+`Y = β0 + β1 X + ε`
+
+β~1~ is the expected change in the outcome Y per unit change in X. Therefore, increasing the predictor X by 1 unit (or going from 1 level to the next) is associated with an increase in Y by β~1~ units. It can be visualized as a 2D image of the same 28x28 size as the digits in the MNIST data set.
+
+```{r}
+#computing beta for train and showing as image
+coeff_train <- model_train$coefficients[2:785]
+
+image(1:28, 1:28, matrix(as.matrix(coeff_train), nrow=28)[ , 28:1], 
+      col = gray(seq(0, 1, 0.05)), xlab = "", ylab="")
+```
+
+### Display Digits
+
+Now let's take a look at 0-9 digits for both training and test subset.
+
+```{r}
+# Showing 0-9 digits from treain set
+train_ind <- c(2,20,3,24,14,8,19,25,21,22)
+par(mfrow=c(3,4))
+for (j in train_ind) {
+  image(1:28, 1:28, matrix(as.matrix(train_df[j,]), nrow=28)[ , 28:1], 
+      col = gray(seq(0, 1, 0.05)), xlab = "", ylab="")
+  
+}
+
+# Showing  0-9 digits from test set
+test_ind <- c(20,7,9,23,12,19,17,15,16,18)
+par(mfrow=c(3,4))
+for (j in test_ind) {
+  image(1:28, 1:28, matrix(as.matrix(test_df[j,]), nrow=28)[ , 28:1], 
+      col = gray(seq(0, 1, 0.05)), xlab = "", ylab="")
+  
+}
+```
+
+### Prediction
+
+Let's see some prediction for our chosen digit (k=0) for both training and test subset. We fit the model with sign() function for prediction and then we will compare it with actual labels.
+
+```{r}
+# Prediction with train set
+train_prediction <- sign(predict(model_train, train_df[,1:784]))
+train_prediction[train_ind]
+
+train_actual <- sign(train_df$ml_labels)
+train_actual[train_ind]
+
+# Prediction with test set
+test_prediction <- sign(predict(model_train, test_df[,1:784]))
+test_prediction[test_ind]
+
+test_actual <- sign(test_df$ml_labels)
+test_actual[test_ind]
+```
+
+### Classification Error Rate
+
+The overall classification accuracy rate corresponds to the proportion of observations that have been correctly classified. Determining the raw classification accuracy is the first step in assessing the performance of a model. Inversely, the classification error rate is defined as the proportion of observations that have been misclassified.
+
+`Error rate = 1 - accuracy`
+
+The classification accuracy and error can be easily computed by comparing with prediction and actual. We will compute classification error rate for both training and test subset.
+
+```{r}
+# Compute the classification error rate for the train set
+train_accuracy = mean(train_prediction == train_actual)
+train_accuracy
+
+train_error <- mean(train_prediction != train_actual)
+train_error
+
+# Classification error rate for the test set
+test_accuracy = mean(test_prediction == test_actual)
+test_accuracy
+
+test_error <- mean(test_prediction != test_actual)
+test_error
+```
+
+### Confusion Matrix
+
+Confusion matrix is 2x2 table showing four parameters, including the number of true positives, true negatives, false negatives and false positives. The R function `table()` can be used to produce a confusion matrix in order to determine how many observations were correctly or incorrectly classified. It compares the observed and the predicted outcome values and shows the number of correct and incorrect predictions categorized by type of outcome.
+
+```{r}
+# confusion matrix for train set
+train_cm_lr = as.matrix(table(prediction = sign(train_prediction), actual= sign(train_actual))) 
+
+ggplot(data = train_cm_lr,
+       mapping = aes(x = prediction,
+                     y = actual)) +
+  geom_tile(aes(fill = Freq)) +
+  geom_text(aes(label = sprintf("%1.0f", Freq)), vjust = 1) +
+  scale_fill_gradient(low = "white",
+                      high = "gray",
+                      trans = "log")
+  
+# confusion matrix for test set
+test_cm_lr = as.matrix(table(prediction = sign(test_prediction), actual = sign(test_actual))) 
+
+ggplot(data = test_cm_lr,
+       mapping = aes(x = prediction,
+                     y = actual)) +
+  geom_tile(aes(fill = Freq)) +
+  geom_text(aes(label = sprintf("%1.0f", Freq)), vjust = 1) +
+  scale_fill_gradient(low = "white",
+                      high = "gray",
+                      trans = "log")
+```
+
+### Diagnostic Test
+
+After running a regression analysis, you should check if the model works well for data. It's a good idea to also produce diagnostic plot to analyze the residuals of the model and make sure that a linear model is appropriate to use for the particular data we're working with. These diagnostics include:
+
+1.  Residuals vs. fitted values
+
+2.  Q-Q plots
+
+3.  Scale Location plots
+
+4.  Residuals vs. Leverage
+
+```{r}
+# diagnostic tests for the train set
+par(mfrow = c(2, 2))
+plot(model_train)
+```
+
+### Backward selection
+
+Princple Component Analysis was used to reduce the dimensionality of the data. By reducing the dimensionality of the data set some of the variation is ineviteably lost. We either directly chose how many variables that we want to keep, and then sum over that many indicies of the vector 'D' from the singular value decompostion; or we can choose an amount of variation, and determine how many varibles need to be kepted to maintain the percentage of variation within the data. Here the variation is set to .99. This cut the number of variables almost in half, from 784 down to 399.
+
+```{r}
+## Principle Component Analysis for Variable Reduction ----
+
+Labels = as.factor(mnist$train_Labels)
+# Transform data to be on a 0 - 1 scale
+mnist[,-1] <- (mnist[,-1]/255)
+
+# create covariance matrix
+Sigma <- var(as.matrix(mnist[,-1])) 
+diag(Sigma) <- 0
+
+#Singular Value Decomposition
+D <- svd(Sigma)$d 
+U <- svd(Sigma)$u
+
+#Value deciding how much variation to retain in the PCA
+variation <- .99
+
+#Figure out how many variables (k) to include to keep that level of variation
+for (k in seq(length(D)))
+{
+  if( (sum(D[1:k])/sum(D)) >= variation){break}
+}
+
+#Reduce U matrix to down to 'k' columns
+U <- U[,1:k]
+
+# Use U matrix and data to map data to lower dimension
+ReducedData <- as.matrix(mnist[,-1]) %*% U
+
+# Replace Transformed Variables into Training Data Set
+mnist_r <- data.frame(mnist[,1],ReducedData)
+names(mnist_r)[1] <- "label"
+dim(mnist_r)
+```
+
+# Part-02
+
+Repeat the above problem for all pairs of digits. For each pair of digits, report the classification error rates for the training and testing sets. The error rates can be formatted nicely into a triangular matrix. For storage and display efficiency, store the testing error in the lower triangle and the training error in the upper triangle. Display 𝛽 and 𝛽) as a 2D images for pairs with lowest and highest error rates.
+
+```{r}
+error_matrix <- matrix(nrow = 10, ncol = 10,dimnames =list(0:9,0:9) )
+
+dataset <- train_digits
+dataset$y <- train_Labels
+
+complete_dataset <- dataset
+#model_matrix <- matrix(nrow = 10,ncol = 10,dimnames = list(0:9,0:9))
+min_error <- 1
+max_error <- 0
+min_model <- NA
+max_model <- NA
+sample <- sample.split(complete_dataset$y, SplitRatio = 0.5)
+train  <- subset(complete_dataset, sample == TRUE)
+test   <- subset(complete_dataset, sample == FALSE)
+for (r in 0:9){
+  val = r+1
+  if (val<=9){
+    for (c in val:9){
+      #k=5
+      train_temp <- subset(train, y %in% c(r, c))
+      test_temp <- test[which(test$y==r | test$y==c),]
+      train_temp <- train_temp %>% mutate(y = case_when(y == r ~ 1,
+                                                y == c ~ -1))
+      test_temp <- test_temp %>% mutate(y = case_when(y == r ~ 1,
+                                                y == c ~ -1))
+     
+      model_temp <- lm(y ~ ., data = train_temp)
+      print(paste("Model for r=",c(r,c)))
+      predicted_train_temp <- sign(predict(model_temp, train_temp[,1:784]))
+      predicted_test_temp <- sign(predict(model_temp, test_temp[,1:784]))
+      #print(paste(predicted_train_temp))
+      tmpp1 = confusionMatrix(data=factor(predicted_train_temp),reference = factor(train_temp$y))
+      error_matrix[r+1,c+1] = 1-tmpp1$overall[1]
+      tmpp2 = confusionMatrix(data=factor(predicted_test_temp),reference = factor(test_temp$y))
+      error_matrix[c+1,r+1] = 1-tmpp2$overall[1]
+      error = 1-tmpp2$overall[1]
+      if (error<min_error){
+        min_error = error
+        min_model <- model_temp
+      }
+      if (error>max_error){
+        max_error=error
+        max_model = model_temp
+      }
+     
+      #print(head(df2$y))
+      # print(paste("r",r,'c',c))
+     
+    }
+     
+  }
+ 
+}
+```
+
+```{r}
+#computing beta for min model and showing as image
+coeff_min <- min_model$coefficients[2:785]
+
+image(1:28, 1:28, matrix(as.matrix(coeff_min), nrow=28)[ , 28:1], 
+      col = gray(seq(0, 1, 0.05)), xlab = "", ylab="")
+
+#computing beta for max model and showing as image
+coeff_max <- max_model$coefficients[2:785]
+
+image(1:28, 1:28, matrix(as.matrix(coeff_max), nrow=28)[ , 28:1],
+      col = gray(seq(0, 1, 0.05)), xlab = "", ylab="")
+```
+
+```{r}
+print(error_matrix)
+```
+
+# Part-03
+
+Use logistic regression and compare your results with Parts 1 and 2.
+
+We will make a Data frame using original train_digits and train_Labels. Then Transform target variable "label" from integer to factor, in order to perform classification. Then we will split the data frame into two equal size training and test subset.
+
+```{r}
+# Transform target variable "label" from integer to factor, in order to perform classification
+mnist_lg <- cbind.data.frame(train_digits, train_Labels)
+dim(mnist_lg)
+
+train_Labels = as.factor(mnist_lg$train_Labels)
+
+# Spliting 50% of dataset as training set and 50% as test set
+
+digits2 <- sample.split(Y = mnist_lg , SplitRatio =0.5)
+
+train_lg <- mnist_lg[digits2, ]
+
+test_lg <- mnist_lg[!digits2, ]
+
+dim(train_lg)
+
+dim(test_lg)
+```
+
+### logistic regression
+
+Now we will do the multinomial logistic regression as it is a multiclass case. We will implement the multinomial logistic regression model using the nnet package with parameters which include:
+
+1.  **MaxNWts=10000:** It allows at most 10,000 weights. In our case, there are(784 dimensions + 1 bias) \* 10 classes = 7850 elements in the weight matrix w.
+
+2.  **decay=5e-3:** The regularization strength, the weight decay is 0.005
+
+3.  **maxit=100:** The maximum number of iteration is set to be 100
+
+```{r}
+library(nnet)
+# Multinomial logistic regression for train set.
+train_model_lg <- multinom(train_Labels ~ ., data = train_lg, MaxNWts=10000, decay=5e-3, maxit=100)
+```
+
+The error value is printed for every 10 iterations, and it is decreasing. The model converges as the maximum number of iterations is reached.
+
+### Prediction and Classification Error
+
+Take a look at the prediction results of the first ten sample and their true values. And then compute classification error rate. We use the training model to predict the classes of the the tesing samples.
+
+```{r}
+# Prediction and classification error for training set.
+train_prediction_lg <- predict(train_model_lg, test_lg, type = "class")
+train_prediction_lg[1:10]
+
+train_actual_lg <- test_lg$train_Labels
+train_actual_lg[1:10]
+
+train_error_lg <- mean(train_prediction_lg != train_actual_lg)
+train_error_lg
+
+```
+
+### Confusion Matrix
+
+Now we can also obtain the confusion matrix.
+
+```{r}
+# Confusion matrix for training set.
+train_cm_lg = table(train_prediction_lg, train_actual_lg)
+
+ggplot(data = train_cm_lg,
+       mapping = aes(x = train_prediction_lg,
+                     y = train_actual_lg)) +
+  geom_tile(aes(fill = Freq)) +
+  geom_text(aes(label = sprintf("%1.0f", Freq)), vjust = 1) +
+  scale_fill_gradient(low = "white",
+                      high = "gray",
+                      trans = "log")
+
+```
+
+# Part-04
+
+Test for outliers in each group of 10 digits using Cook's distance. Visualize the 'mean' and identified outliers for each digit. Repeat Parts 1 - 3 with outliers removed.
+
+### **Cooks Distance**
+
+Cook's distance is the scaled change in fitted values, which is useful for identifying outliers in the *X* values (observations for predictor variables). Cook's distance shows the influence of each observation on the fitted response values. An observation with Cook's distance larger than three times the mean Cook's distance might be an outlier.
+
+```{r}
+library(ISLR)
+# We are going to run a linear regression on train sub set.
+mnist <- cbind.data.frame(train_digits, train_Labels)
+dim(mnist)
+mnist$train_Labels =as.numeric(mnist$train_Labels)
+# Spliting 50% of dataset as training set and 50% as test set
+digits_2 <- sample.split(mnist$train_Labels , SplitRatio =0.5)
+train_2  <- mnist[digits_2, ]
+test_2   <- mnist[!digits_2, ]
+
+model <- lm(train_Labels ~ . , data = train_2)
+```
+
+Let's display diagnostic plots.
+
+```{r}
+par(mfrow = c(2,2))
+plot(model)
+```
+
+let's find out outliear with cook's distance
+
+```{r}
+cooksD <- cooks.distance(model)
+influential <- as.numeric(names(cooksD)[(cooksD > 3 * mean(cooksD, na.rm = TRUE))])
+```
+
+Visualizing the 'mean' and identified outliers.
+
+```{r}
+plot(cooksD, pch="*", cex=2, main="Influential Obs by Cooks distance")  # plot cook's distance
+abline(h = 3*mean(cooksD, na.rm=T), col="red")  # add cutoff line
+text(x=1:length(cooksD)+1, y=cooksD, labels=ifelse(cooksD>3*mean(cooksD, na.rm=T),names(cooksD),""), col="red") 
+```
+
+Now we will remove outliers and then again run a model without outliers. also we will display diagnostic plots to see changes.
+
+```{r}
+outliers <- train_2[influential, ]
+
+# Removing outliers
+train_no_outliers <- train_2 %>% anti_join(outliers)
+
+model_no_ouliers <- lm(train_Labels ~ . , data = train_no_outliers)
+
+par(mfrow = c(2,2))
+plot(model_no_ouliers)
+```
+
+Now we will select a digit (i.e. k=0) and converted the k labels in the target variable to '+1' and non-k labels to '-1'. We will implement a Least Squares method to find the Beta coefficients and classify labels using a sign function. First let's Define the labels:
+
+```{r}
+# Select digit k and re-label the dataset wrt selected digit
+k = 0
+train_no_outliers <- train_no_outliers %>% 
+  mutate(ml_labels = case_when(train_Labels == k ~ 1,
+                               train_Labels !=k ~ -1))
+
+train_no_outliers2 <- select(train_no_outliers, -c(train_Labels))
+dim(train_no_outliers2)
+```
+
+Running linear model and displaying beta coefficient.
+
+```{r}
+model_no_outliers <- lm(ml_labels ~ . , data = train_no_outliers2)
+
+#computing beta for no outliers model showing as image
+coeff_no_outliers <- model_no_outliers$coefficients[2:785]
+
+image(1:28, 1:28, matrix(as.matrix(coeff_no_outliers), nrow=28)[ , 28:1], 
+      col = gray(seq(0, 1, 0.05)), xlab = "", ylab="")
+```
+
+```{r}
+prediction_no_outliers <- sign(predict(model_no_outliers))
+prediction_no_outliers[1:10]
+actual_no_outliers <- train_no_outliers2$ml_labels
+actual_no_outliers[1:10]
+
+# Compute the classification error rate.
+error_no_outliers <- mean(prediction_no_outliers != actual_no_outliers)
+error_no_outliers
+
+# confusion matrix for train set
+cm_no_outliers = as.matrix(table(prediction = sign(prediction_no_outliers), actual= sign(actual_no_outliers))) 
+
+ggplot(data = cm_no_outliers,
+       mapping = aes(x = prediction,
+                     y = actual)) +
+  geom_tile(aes(fill = Freq)) +
+  geom_text(aes(label = sprintf("%1.0f", Freq)), vjust = 1) +
+  scale_fill_gradient(low = "white",
+                      high = "gray",
+                      trans = "log")
+```
+
+Now we will do logistic regression for no outliers. we will run model on train set and test it on testing set.
+
+```{r}
+# Transform target variable "label" from integer to factor, in order to perform classification
+lg_no_outliers <- select(train_no_outliers, -c(ml_labels))
+
+lg_Labels = as.factor(lg_no_outliers$train_Labels)
+
+library(nnet)
+# Multinomial logistic regression for train set.
+model_lg_no <- multinom(lg_Labels ~ ., data = lg_no_outliers, MaxNWts=10000, decay=5e-3, maxit=100)
+
+# Prediction and classification error.
+prediction_lg <- predict(model_lg_no, test_2, type = "class")
+prediction_lg[1:10]
+
+actual_lg <-  test_2$train_Labels
+actual_lg[1:10]
+
+error_lg <- mean(prediction_lg != actual_lg)
+error_lg
+
+# Confusion matrix for training set.
+cm_lg = table(prediction_lg, actual_lg)
+
+ggplot(data = cm_lg,
+       mapping = aes(x = prediction_lg,
+                     y = actual_lg)) +
+  geom_tile(aes(fill = Freq)) +
+  geom_text(aes(label = sprintf("%1.0f", Freq)), vjust = 1) +
+  scale_fill_gradient(low = "white",
+                      high = "gray",
+                      trans = "log")
+```
